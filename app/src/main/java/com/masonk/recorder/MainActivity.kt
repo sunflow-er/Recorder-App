@@ -1,16 +1,20 @@
 package com.masonk.recorder
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.media.MediaPlayer
 import android.media.MediaRecorder
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import android.provider.Settings
 
 import com.masonk.recorder.databinding.ActivityMainBinding
 import java.io.IOException
@@ -20,7 +24,7 @@ class MainActivity : AppCompatActivity() {
 
     // 권한 요청 결과를 식벽하기 위한 코드 (static-final)
     companion object {
-        private  const val  REQUEST_RECORD_AUDIO_CODE = 200
+        private const val REQUEST_RECORD_AUDIO_CODE = 200
     }
 
     // 현재 상태를 나타내는 열거형 상수를 그룹화한 enum 클래스
@@ -62,8 +66,8 @@ class MainActivity : AppCompatActivity() {
                     stopRecording()
                 }
 
-                State.PLAYING -> { // 현재 PLAYING 상태이면
-
+                else -> { // 현재 PLAYING 상태이면
+                    // 아무것도 안함
                 }
             }
         }
@@ -73,7 +77,7 @@ class MainActivity : AppCompatActivity() {
             when (state) {
                 State.RELEASE -> {
                     // 재생 시작
-                    onPlay(true)
+                    startPlaying()
                 }
 
                 else -> { // RECORDING, PLAYING
@@ -87,7 +91,7 @@ class MainActivity : AppCompatActivity() {
             when (state) {
                 State.PLAYING -> {
                     // 재생 종료
-                    onPlay(false)
+                    stopPlaying()
                 }
 
                 else -> { // RELEASE, RECORDING
@@ -101,33 +105,113 @@ class MainActivity : AppCompatActivity() {
     // 현재 권한 허용 상태를 확인하고 권한을 요청, 녹음을 시작하는 함수
     private fun record() {
         when {
-            ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED -> { // 권한이 이미 부여된 경우
+            ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) == PackageManager.PERMISSION_GRANTED -> { // 권한이 이미 부여된 경우
                 // 녹음 시작
                 startRecording()
             }
-            ActivityCompat.shouldShowRequestPermissionRationale(this, Manifest.permission.RECORD_AUDIO) -> { // 사용자가 이전에 권한 요청 거부했지만, 권한 요청 이유를 설명해야 하는 경우
+
+            ActivityCompat.shouldShowRequestPermissionRationale(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) -> { // 사용자가 이전에 권한 요청 거부했지만, 권한 요청 이유를 설명해야 하는 경우
                 // 권한이 필요한 이유를 설명하는 다이얼로그 표시
                 showRequestPermissionRationaleDialog()
             }
+
             else -> { // 권한이 부여되지 않았고, 설명이 필요하지 않은 경우
                 // 권한 요청
-                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_RECORD_AUDIO_CODE)
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.RECORD_AUDIO),
+                    REQUEST_RECORD_AUDIO_CODE
+                )
+            }
+        }
+    }
+
+    // 권한 요청 결과를 받는 함수
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+
+        // 권한 요청 결과
+        val isGranted =
+            (requestCode == REQUEST_RECORD_AUDIO_CODE) && (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED)
+
+        if (isGranted) { // 승인
+            startRecording() // 녹음 시작
+        } else { // 거절
+            if (ActivityCompat.shouldShowRequestPermissionRationale(
+                    this,
+                    Manifest.permission.RECORD_AUDIO
+                )
+            ) { // 권한이 필요한 이유를 설명하는 AlertDialog를 띄워야 하면
+                // 권한이 필요한 이유를 설명하는 AlertDialog 띄우기
+                showRequestPermissionRationaleDialog()
+            } else {
+                // 앱 설정 화면으로 직접 이동하는 다이얼로그 띄우기
+                showRequestPermissionSettingDialog()
             }
         }
     }
 
     // 권한이 필요한 이유를 설명하는 AlertDialog 띄우기
     private fun showRequestPermissionRationaleDialog() {
-
         AlertDialog.Builder(this)
             // Builder 패턴
             // set, set, set, ... -> build / show
             .setMessage(getString(R.string.request_permission_rationale_message))
             .setPositiveButton(getString(R.string.request_permission_rationale_positive)) { _, _ ->
-                ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_RECORD_AUDIO_CODE)
-            }.setNegativeButton(getString(R.string.request_permission_rationale_negative)) { dialogInterface, _ ->
+                // 권한 요청
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.RECORD_AUDIO),
+                    REQUEST_RECORD_AUDIO_CODE
+                )
+            }
+            .setNegativeButton(getString(R.string.request_permission_rationale_negative)) { dialogInterface, _ ->
+                // 취소
                 dialogInterface.cancel()
             }.show()
+    }
+
+    // 앱 설정 화면으로 직접 이동하는 다이얼로그 띄우기
+    private fun showRequestPermissionSettingDialog() {
+        AlertDialog.Builder(this)
+            // Builder 패턴
+            // set, set, set, ... -> build / show
+            .setMessage(getString(R.string.request_permission_setting_message))
+            .setPositiveButton(getString(R.string.request_permission_setting_positive)) { _, _ ->
+                // 앱 설정으로 이동
+                navigateToAppSetting()
+            }
+            .setNegativeButton(getString(R.string.request_permission_setting_negative)) { dialogInterface, _ ->
+                // 취소
+                dialogInterface.cancel()
+            }.show()
+    }
+
+    // 앱 설정 화면(액티비티)로 이동
+    private fun navigateToAppSetting() {
+        val intent = Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS // 특정 애플리케이션의 세부 정보 화면을 나타내는 상수
+        ).apply {
+            // 특정 애플리케이션 설정
+            data = Uri.fromParts(
+                "package", // URI의 스키마
+                packageName, // 현재 애플리케이션의 패키지 이름
+                null // URI의 나머지 부분
+            )
+        }
+        
+        // 액티비티 이동
+        startActivity(intent)
     }
 
     // 녹음 시작
@@ -152,8 +236,8 @@ class MainActivity : AppCompatActivity() {
             try {
                 // 녹음 준비
                 prepare()
-            } catch(e: IOException) {
-                Log.e("APP", "prepare() failed $e")
+            } catch (e: IOException) {
+                Log.e("APP", "MediaRecorder prepare() failed $e")
             }
 
             // 녹음 시작, 오디오 데이터를 캡처하고 파일에 저장
@@ -163,29 +247,31 @@ class MainActivity : AppCompatActivity() {
         // 녹음 버튼 설정
         binding.recordButton.apply {
             // 정지 이미지로 변경
-            setImageDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.baseline_stop_24))
+            setImageDrawable(
+                ContextCompat.getDrawable(
+                    this@MainActivity,
+                    R.drawable.baseline_stop_24
+                )
+            )
 
             // 이미지 색을 검정색으로 변경
-            imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.black))
-        }
-        
-        // 재생 버튼 설정
-        binding.playButton.apply {
-            // 버튼 비활성화
-            isEnabled = false
-            
-            // 투명도 조절
-            alpha = 0.3f
+            imageTintList =
+                ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.black))
         }
 
+        // 재생 버튼 비활성화
+        disableButton(binding.playButton)
+
+        // (재생) 정지 버튼 비활성화
+        disableButton(binding.stopButton)
     }
-    
+
     // 녹음 정지 및 종료
     private fun stopRecording() {
         recorder?.apply {
             // 현재 진행 중인 녹음 중지, 녹음이 완료되고 파일 저장
             stop()
-            
+
             // 객체가 사용하던 자원 해제
             release()
         }
@@ -198,21 +284,82 @@ class MainActivity : AppCompatActivity() {
         // 녹음 버튼 설정
         binding.recordButton.apply {
             // 녹음 이미지로 복구
-            setImageDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.baseline_fiber_manual_record_24))
+            setImageDrawable(
+                ContextCompat.getDrawable(
+                    this@MainActivity,
+                    R.drawable.baseline_fiber_manual_record_24
+                )
+            )
 
             // 이미지 색을 빨간색으로 복구
-            imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.red))
+            imageTintList =
+                ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.red))
         }
-        
-        // 재생 버튼 설정
-        binding.playButton.apply { 
-            // 버튼 활성화
+
+        // 재생 버튼 활성화
+        enableButton(binding.playButton)
+
+        // (재생) 정지 버튼 활성화
+        enableButton(binding.stopButton)
+    }
+
+    // 재생 시작
+    private fun startPlaying() {
+        // 현재 상태를 PLAYING으로 변경
+        state = State.PLAYING
+
+        // player 객체 설정 및 재생, 재생 완료 시 종료
+        player = MediaPlayer().apply {
+            try {
+                // 재생할 녹음 파일의 경로 설정
+                setDataSource(filePath)
+
+                // 녹음 파일 준비
+                prepare()
+            } catch (e: IOException) {
+                Log.e("APP", "MediaPlayer prepare() failed $e")
+            }
+
+            // 재생 시작
+            start()
+
+            // 재생 완료 시 종료
+            setOnCompletionListener {
+                stopPlaying()
+            }
+        }
+
+        // 녹음 버튼 비활성화
+        disableButton(binding.recordButton)
+    }
+
+    // 재생 종료
+    private fun stopPlaying() {
+        // 현재 상태를 RELEASE로 변경
+        state = State.RELEASE
+
+        // 객체가 사용하던 자원 해제
+        player?.release()
+
+        player = null
+
+        // 녹음 버튼 활성화
+        enableButton(binding.recordButton)
+    }
+
+    // 버튼을 활성화하는 함수
+    private fun enableButton(button: View) {
+        button.apply {
             isEnabled = true
-            
-            // 투명도 복구
             alpha = 1.0f
         }
     }
 
-    
+    // 버튼을 비활성화하는 함수
+    private fun disableButton(button: View) {
+        button.apply {
+            isEnabled = false
+            alpha = 0.3f
+        }
+    }
 }

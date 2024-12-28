@@ -3,4 +3,7 @@
     <string name="request_permission_rationale_message">이 앱을 이용하기 위해서는 녹음 권한이 필요합니다.</string>
     <string name="request_permission_rationale_positive">권한 허용</string>
     <string name="request_permission_rationale_negative">취소</string>
+    <string name="request_permission_setting_message">이 앱을 이용하기 위해서는 앱 설정에서 녹음 권한을 허용해야 합니다.</string>
+    <string name="request_permission_setting_positive">앱 설정으로 이동</string>
+    <string name="request_permission_setting_negative">취소</string>
 </resources>
