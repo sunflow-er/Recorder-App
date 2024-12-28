@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "com.masonk.recorder"
-    compileSdk = 34
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.masonk.recorder"
