@@ -19,7 +19,7 @@ import android.provider.Settings
 import com.masonk.recorder.databinding.ActivityMainBinding
 import java.io.IOException
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), OnTimerTickListener {
     private lateinit var binding: ActivityMainBinding
 
     // 권한 요청 결과를 식벽하기 위한 코드 (static-final)
@@ -34,24 +34,33 @@ class MainActivity : AppCompatActivity() {
         RELEASE, RECORDING, PLAYING
     }
 
-
     // 초기 state는 RELEASE
     private var state: State = State.RELEASE
 
-    // 오디오를 녹음하는데 사용되는 객체, 초기는 null
+    // 오디오(또는 비디오)를 녹음하는데 사용되는 객체, 초기는 null
     private var recorder: MediaRecorder? = null
 
-    // 오디오를 재생하는 데 사용되는 객체, 초기는 null
+    // 오디오(또는 비디오)를 재생하는 데 사용되는 객체, 초기는 null
     private var player: MediaPlayer? = null
 
     // 녹음된 파일의 경로를 나타내는 변수
     private var filePath: String = ""
+
+    // 타이머 객채
+    private lateinit var timer : Timer
 
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        // 녹음을 저장할 파일의 경로
+        // 외부 저장소에 위치, 앱별로 분리된 디렉토리, 임시 데이터 저장에 사용, 앱 제거 시 디렉토리 내용도 함께 제거
+        filePath = "${externalCacheDir?.absolutePath}/audio_record_test.3gp"
+
+        // Timer 객체 생성
+        timer = Timer(this)
 
         // record 버튼 클릭했을 때
         binding.recordButton.setOnClickListener {
@@ -112,7 +121,6 @@ class MainActivity : AppCompatActivity() {
                 // 녹음 시작
                 startRecording()
             }
-
             ActivityCompat.shouldShowRequestPermissionRationale(
                 this,
                 Manifest.permission.RECORD_AUDIO
@@ -120,7 +128,6 @@ class MainActivity : AppCompatActivity() {
                 // 권한이 필요한 이유를 설명하는 다이얼로그 표시
                 showRequestPermissionRationaleDialog()
             }
-
             else -> { // 권한이 부여되지 않았고, 설명이 필요하지 않은 경우
                 // 권한 요청
                 ActivityCompat.requestPermissions(
@@ -128,6 +135,193 @@ class MainActivity : AppCompatActivity() {
                     arrayOf(Manifest.permission.RECORD_AUDIO),
                     REQUEST_RECORD_AUDIO_CODE
                 )
+            }
+        }
+    }
+
+    // 녹음 시작
+    private fun startRecording() {
+        // 현재 상태를 RECORDING으로 변경
+        state = State.RECORDING
+
+        // recorder 객체 설정 및 녹음
+        recorder = MediaRecorder().apply {
+            // 오디소 소스 설정
+            setAudioSource(MediaRecorder.AudioSource.MIC)
+
+            // 녹음된 파일의 경로 설정
+            setOutputFile(filePath)
+
+            // 출력 형식 설정
+            setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
+
+            // 오디오 인코더 설정
+            setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
+
+            try {
+                // 녹음 준비
+                prepare()
+            } catch (e: IOException) {
+                Log.e("APP", "MediaRecorder prepare() failed $e")
+            }
+
+            // 녹음 시작, 오디오 데이터를 캡처하고 파일에 저장
+            start()
+        }
+
+        // 진폭 데이터 초기화
+        binding.waveFormView.clearData()
+        
+        // 타이머 시작
+        timer.start()
+
+        // 녹음 버튼 설정
+        binding.recordButton.apply {
+            // 정지 이미지로 변경
+            setImageDrawable(
+                ContextCompat.getDrawable(
+                    this@MainActivity,
+                    R.drawable.baseline_stop_24
+                )
+            )
+
+            // 이미지 색을 검정색으로 변경
+            imageTintList =
+                ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.black))
+        }
+
+        // 재생 버튼 비활성화
+        disableButton(binding.playButton)
+
+        // (재생) 정지 버튼 비활성화
+        disableButton(binding.stopButton)
+    }
+
+    // 녹음 정지 및 종료
+    private fun stopRecording() {
+        recorder?.apply {
+            // 현재 진행 중인 녹음 중지, 녹음이 완료되고 파일 저장
+            stop()
+
+            // 객체가 사용하던 자원 해제
+            release()
+        }
+
+        recorder = null
+
+        // 현재 상태를 RELEASE로 변경
+        state = State.RELEASE
+
+        // 타이머 정지
+        timer.stop()
+
+        // 녹음 버튼 설정
+        binding.recordButton.apply {
+            // 녹음 이미지로 복구
+            setImageDrawable(
+                ContextCompat.getDrawable(
+                    this@MainActivity,
+                    R.drawable.baseline_fiber_manual_record_24
+                )
+            )
+
+            // 이미지 색을 빨간색으로 복구
+            imageTintList =
+                ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.red))
+        }
+
+        // 재생 버튼 활성화
+        enableButton(binding.playButton)
+
+        // (재생) 정지 버튼 활성화
+        enableButton(binding.stopButton)
+    }
+
+    // 재생 시작
+    private fun startPlaying() {
+        // 현재 상태를 PLAYING으로 변경
+        state = State.PLAYING
+
+        // player 객체 설정 및 재생, 재생 완료 시 종료
+        player = MediaPlayer().apply {
+            try {
+                // 재생할 녹음 파일의 경로 설정
+                setDataSource(filePath)
+
+                // 녹음 파일 준비
+                prepare()
+            } catch (e: IOException) {
+                Log.e("APP", "MediaPlayer prepare() failed $e")
+            }
+
+            // 재생 시작
+            start()
+
+            // 재생 완료 시 종료
+            setOnCompletionListener {
+                stopPlaying()
+            }
+        }
+
+        // 녹음 파형 초기화
+        binding.waveFormView.clearWave()
+
+        // 타이머 시작
+        timer.start()
+
+        // 녹음 버튼 비활성화
+        disableButton(binding.recordButton)
+    }
+
+    // 재생 종료
+    private fun stopPlaying() {
+        // 현재 상태를 RELEASE로 변경
+        state = State.RELEASE
+
+        // 객체가 사용하던 자원 해제
+        player?.release()
+
+        player = null
+
+        // 타이머 정지
+        timer.stop()
+
+        // 녹음 버튼 활성화
+        enableButton(binding.recordButton)
+    }
+
+    // 버튼을 활성화하는 함수
+    private fun enableButton(button: View) {
+        button.apply {
+            isEnabled = true
+            alpha = 1.0f
+        }
+    }
+
+    // 버튼을 비활성화하는 함수
+    private fun disableButton(button: View) {
+        button.apply {
+            isEnabled = false
+            alpha = 0.3f
+        }
+    }
+
+    override fun onTick(duration: Long) {
+        val milliSecond = duration % 1000
+        val second = (duration / 1000) % 60
+        val minute = (duration / 1000) / 60
+
+        binding.timerTextView.text = String.format("%02d:%02d:%02d", minute, second, milliSecond / 10)
+
+        when(state) {
+            State.RECORDING -> {
+                binding.waveFormView.addAmplitude(recorder?.maxAmplitude?.toFloat() ?: 0f)
+            }
+            State.PLAYING -> {
+                binding.waveFormView.replayAmplitude()
+            }
+            else -> {
+
             }
         }
     }
@@ -152,7 +346,7 @@ class MainActivity : AppCompatActivity() {
                     Manifest.permission.RECORD_AUDIO
                 )
             ) { // 권한이 필요한 이유를 설명하는 AlertDialog를 띄워야 하면
-                // 권한이 필요한 이유를 설명하는 AlertDialog 띄우기
+                // 관련 AlertDialog 띄우기
                 showRequestPermissionRationaleDialog()
             } else {
                 // 앱 설정 화면으로 직접 이동하는 다이얼로그 띄우기
@@ -209,157 +403,8 @@ class MainActivity : AppCompatActivity() {
                 null // URI의 나머지 부분
             )
         }
-        
+
         // 액티비티 이동
         startActivity(intent)
-    }
-
-    // 녹음 시작
-    private fun startRecording() {
-        // 현재 상태를 RECORDING으로 변경
-        state = State.RECORDING
-
-        // recorder 객체 설정 및 녹음
-        recorder = MediaRecorder().apply {
-            // 오디소 소스 설정
-            setAudioSource(MediaRecorder.AudioSource.MIC)
-
-            // 녹음된 파일의 경로 설정
-            setOutputFile(filePath)
-
-            // 출력 형식 설정
-            setOutputFormat(MediaRecorder.OutputFormat.THREE_GPP)
-
-            // 오디오 인코더 설정
-            setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB)
-
-            try {
-                // 녹음 준비
-                prepare()
-            } catch (e: IOException) {
-                Log.e("APP", "MediaRecorder prepare() failed $e")
-            }
-
-            // 녹음 시작, 오디오 데이터를 캡처하고 파일에 저장
-            start()
-        }
-
-        // 녹음 버튼 설정
-        binding.recordButton.apply {
-            // 정지 이미지로 변경
-            setImageDrawable(
-                ContextCompat.getDrawable(
-                    this@MainActivity,
-                    R.drawable.baseline_stop_24
-                )
-            )
-
-            // 이미지 색을 검정색으로 변경
-            imageTintList =
-                ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.black))
-        }
-
-        // 재생 버튼 비활성화
-        disableButton(binding.playButton)
-
-        // (재생) 정지 버튼 비활성화
-        disableButton(binding.stopButton)
-    }
-
-    // 녹음 정지 및 종료
-    private fun stopRecording() {
-        recorder?.apply {
-            // 현재 진행 중인 녹음 중지, 녹음이 완료되고 파일 저장
-            stop()
-
-            // 객체가 사용하던 자원 해제
-            release()
-        }
-
-        recorder = null
-
-        // 현재 상태를 RELEASE로 변경
-        state = State.RELEASE
-
-        // 녹음 버튼 설정
-        binding.recordButton.apply {
-            // 녹음 이미지로 복구
-            setImageDrawable(
-                ContextCompat.getDrawable(
-                    this@MainActivity,
-                    R.drawable.baseline_fiber_manual_record_24
-                )
-            )
-
-            // 이미지 색을 빨간색으로 복구
-            imageTintList =
-                ColorStateList.valueOf(ContextCompat.getColor(this@MainActivity, R.color.red))
-        }
-
-        // 재생 버튼 활성화
-        enableButton(binding.playButton)
-
-        // (재생) 정지 버튼 활성화
-        enableButton(binding.stopButton)
-    }
-
-    // 재생 시작
-    private fun startPlaying() {
-        // 현재 상태를 PLAYING으로 변경
-        state = State.PLAYING
-
-        // player 객체 설정 및 재생, 재생 완료 시 종료
-        player = MediaPlayer().apply {
-            try {
-                // 재생할 녹음 파일의 경로 설정
-                setDataSource(filePath)
-
-                // 녹음 파일 준비
-                prepare()
-            } catch (e: IOException) {
-                Log.e("APP", "MediaPlayer prepare() failed $e")
-            }
-
-            // 재생 시작
-            start()
-
-            // 재생 완료 시 종료
-            setOnCompletionListener {
-                stopPlaying()
-            }
-        }
-
-        // 녹음 버튼 비활성화
-        disableButton(binding.recordButton)
-    }
-
-    // 재생 종료
-    private fun stopPlaying() {
-        // 현재 상태를 RELEASE로 변경
-        state = State.RELEASE
-
-        // 객체가 사용하던 자원 해제
-        player?.release()
-
-        player = null
-
-        // 녹음 버튼 활성화
-        enableButton(binding.recordButton)
-    }
-
-    // 버튼을 활성화하는 함수
-    private fun enableButton(button: View) {
-        button.apply {
-            isEnabled = true
-            alpha = 1.0f
-        }
-    }
-
-    // 버튼을 비활성화하는 함수
-    private fun disableButton(button: View) {
-        button.apply {
-            isEnabled = false
-            alpha = 0.3f
-        }
     }
 }
